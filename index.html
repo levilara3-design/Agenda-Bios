@@ -1,0 +1,1595 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Agenda de Avaliações</title>
+
+  <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/main.min.css" rel="stylesheet"/>
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #ffffff;
+      color: #111111;
+      margin: 0;
+      padding: 0;
+    }
+    header {
+      border-bottom: 1px solid #dddddd;
+      padding: 20px 30px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      background: #ffffff;
+      z-index: 1000;
+    }
+    header .logo img {
+      height: 50px;
+    }
+    header h1 {
+      font-size: 24px;
+      margin: 0;
+    }
+    main {
+      max-width: 1200px;
+      margin: 30px auto;
+      padding: 20px;
+    }
+    form {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    label {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 5px;
+      display: block;
+    }
+    input, select, textarea {
+      padding: 10px;
+      border: 1px solid #cccccc;
+      border-radius: 8px;
+      width: 100%;
+      box-sizing: border-box;
+      font-size: 14px;
+    }
+    textarea {
+      resize: vertical;
+    }
+    .actions {
+      grid-column: 1 / -1;
+      display: flex;
+      justify-content: flex-end;
+      gap: 15px;
+      margin-top: 20px;
+    }
+    button {
+      padding: 10px 20px;
+      border-radius: 8px;
+      border: 1px solid #333333;
+      cursor: pointer;
+      background: #f8f8f8;
+      color: #111111;
+      font-size: 14px;
+    }
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.5;
+    }
+    button.primary {
+      background: #007bff;
+      color: #ffffff;
+      border-color: #007bff;
+    }
+    nav {
+      margin: 30px 20px;
+      display: flex;
+      gap: 15px;
+    }
+    nav button {
+      padding: 10px 20px;
+      border-radius: 8px;
+      border: 1px solid #333333;
+      background: #f8f8f8;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    nav button.active {
+      background: #007bff;
+      color: #ffffff;
+      border-color: #007bff;
+    }
+    #agenda {
+      margin-top: 30px;
+    }
+    #listaEventos {
+      margin-top: 30px;
+      max-width: 1000px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    #listaEventos table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+    #listaEventos th,
+    #listaEventos td {
+      border: 1px solid #dddddd;
+      padding: 12px;
+      text-align: left;
+    }
+    #listaEventos th {
+      background: #f0f0f0;
+      font-weight: 600;
+    }
+    .btnEditar {
+      background: #ffc107;
+      color: #111111;
+      border: none;
+      padding: 8px 12px;
+      cursor: pointer;
+      border-radius: 6px;
+    }
+    .btnExcluir {
+      background: #dc3545;
+      color: #ffffff;
+      border: none;
+      padding: 8px 12px;
+      cursor: pointer;
+      border-radius: 6px;
+      margin-left: 10px;
+    }
+    .restrito {
+      background-color: rgba(255, 0, 0, 0.1);
+    }
+    #controlesAgenda {
+      display: flex;
+      gap: 15px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .btnFiltro {
+      background-color: #f0f0f0;
+      border: 1px solid #cccccc;
+      padding: 8px 15px;
+      cursor: pointer;
+      border-radius: 8px;
+    }
+    .btnFiltro.active {
+      background-color: #007bff;
+      color: #ffffff;
+      border-color: #007bff;
+    }
+    #history-controls button {
+      padding: 8px;
+      font-size: 18px;
+      border-radius: 50%;
+      line-height: 1;
+    }
+    .fc .fc-bg-event.blocked {
+      background-color: #dc3545;
+      background-image: linear-gradient(45deg, rgba(255,255,255,.15) 25%, transparent 25%, transparent 50%, rgba(255,255,255,.15) 50%, rgba(255,255,255,.15) 75%, transparent 75%, transparent);
+      background-size: 20px 20px;
+    }
+    .modal {
+      display: none;
+      position: fixed;
+      z-index: 1001;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      overflow: auto;
+      background-color: rgba(0,0,0,0.5);
+      justify-content: center;
+      align-items: center;
+    }
+    .modal-content {
+      background-color: #fefefe;
+      margin: auto;
+      padding: 30px;
+      border: 1px solid #888888;
+      width: 90%;
+      max-width: 700px;
+      border-radius: 12px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    }
+    .modal-content h2 {
+      margin-top: 0;
+      color: #111111;
+      font-size: 20px;
+    }
+    .close {
+      color: #aaaaaa;
+      float: right;
+      font-size: 28px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    .close:hover,
+    .close:focus {
+      color: #000000;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .tooltip .tooltiptext {
+      visibility: hidden;
+      width: 250px;
+      background-color: #555555;
+      color: #ffffff;
+      text-align: center;
+      border-radius: 6px;
+      padding: 10px;
+      position: absolute;
+      z-index: 1;
+      bottom: 125%;
+      left: 50%;
+      margin-left: -125px;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    .tooltip:hover .tooltiptext {
+      visibility: visible;
+      opacity: 1;
+    }
+    .fc-event {
+      cursor: pointer;
+    }
+    #slotDurationSelect {
+      padding: 10px;
+      border: 1px solid #cccccc;
+      border-radius: 8px;
+      font-size: 14px;
+    }
+    #contextMenu {
+      display: none;
+      position: absolute;
+      background: #ffffff;
+      border: 1px solid #cccccc;
+      padding: 10px;
+      z-index: 1002;
+      border-radius: 8px;
+    }
+    #contextMenu button {
+      display: block;
+      width: 100%;
+      margin-bottom: 8px;
+      background: #f8f8f8;
+      color: #111111;
+      padding: 8px;
+      border-radius: 6px;
+    }
+    #searchInput {
+      padding: 10px;
+      margin-bottom: 15px;
+      width: 100%;
+      box-sizing: border-box;
+      font-size: 14px;
+      border-radius: 8px;
+      border: 1px solid #cccccc;
+    }
+    #configList {
+      list-style: none;
+      padding: 0;
+    }
+    #configList li {
+      margin-bottom: 15px;
+      color: #111111;
+    }
+    #configForm {
+      display: grid;
+      gap: 15px;
+    }
+    .presenca {
+      color: #22c55e;
+    }
+    .falta-sem-justificativa {
+      color: #ef4444;
+    }
+    .ausencia-do-avaliador {
+      color: #f97316;
+    }
+    .desmarcado {
+      color: #a855f7;
+    }
+    #newBloqueioDays {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+      gap: 5px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo"><img src="assets/logo.png" alt="Logo"></div>
+    <h1>Agenda de Avaliações</h1>
+    <div style="display: flex; gap: 15px; align-items: center;">
+      <div id="history-controls" style="display: flex; gap: 10px; align-items: center;">
+        <button id="btnUndo" title="Desfazer (Ctrl+Z)">&larr;</button>
+        <button id="btnRedo" title="Refazer (Ctrl+Y)">&rarr;</button>
+      </div>
+      <button id="btnExport">Exportar Excel</button>
+      <button id="btnConfig" style="background-color: #ffc107; color: #111111;">Configurações</button>
+    </div>
+  </header>
+
+  <nav>
+    <button id="btnCadastro" class="active">Cadastro</button>
+    <button id="btnAgenda">Agenda</button>
+  </nav>
+
+  <main>
+    <section id="cadastro">
+      <form id="formAvaliacao">
+        <input type="hidden" id="editandoId" />
+        <div><label>Nome *</label><input type="text" id="nome" required /></div>
+        <div><label>Telefone *</label><input type="tel" id="telefone" required /></div>
+        <div><label>Data da Avaliação *</label><input type="date" id="dataAvaliacao" required /></div>
+        <div><label>Hora *</label><input type="time" id="horaAvaliacao" required /></div>
+        <div>
+          <label>Pago? *</label>
+          <select id="pago" required>
+            <option value="">Selecione</option>
+            <option value="Pago">Pago</option>
+            <option value="A pagar">A pagar</option>
+          </select>
+        </div>
+        <div><label>Data de Pagamento</label><input type="date" id="dataPagamento" disabled /></div>
+        <div>
+          <label>Serviço *</label>
+          <select id="servico" required></select>
+        </div>
+        <div><label>Valor</label><input type="number" step="0.01" id="valor" placeholder="Ex: 200" /></div>
+        <div><label>Valor (R$)</label><input type="text" id="valorFormatado" disabled /></div>
+        <div>
+          <label>Avaliador *</label>
+          <select id="avaliador" required></select>
+        </div>
+        <div><label>Recepção Responsável</label><input type="text" id="responsavel" /></div>
+        <div><label>Observação</label><textarea id="observacao" rows="3"></textarea></div>
+        <div class="actions">
+          <button type="reset" id="btnLimpar">Limpar</button>
+          <button type="submit" class="primary">Salvar</button>
+        </div>
+      </form>
+
+      <div id="listaEventos">
+        <h2>Lista de Marcações</h2>
+        <input type="text" id="searchInput" placeholder="Buscar por nome, avaliador, data, hora, atendimento...">
+        <table>
+          <thead>
+            <tr>
+              <th>Nome</th>
+              <th>Avaliador</th>
+              <th>Data</th>
+              <th>Hora</th>
+              <th>Atendimento</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="tabelaEventos"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="agenda" style="display: none;">
+      <div id="controlesAgenda">
+        <span>Filtrar por:</span>
+        <button class="btnFiltro active" data-filter="Todos">Todos</button>
+        <button class="btnFiltro" data-filter="Nutricional">Nutricional</button>
+        <button class="btnFiltro" data-filter="Funcional">Funcional</button>
+        <button class="btnFiltro" data-filter="Fisioterapia">Fisioterapia</button>
+        <span style="margin-left: 15px;">Intervalo:</span>
+        <select id="slotDurationSelect">
+          <option value="00:05:00">5 minutos</option>
+          <option value="00:10:00">10 minutos</option>
+          <option value="00:15:00">15 minutos</option>
+          <option value="00:20:00">20 minutos</option>
+          <option value="00:25:00">25 minutos</option>
+          <option value="00:30:00" selected>30 minutos</option>
+          <option value="00:35:00">35 minutos</option>
+          <option value="00:40:00">40 minutos</option>
+          <option value="00:45:00">45 minutos</option>
+          <option value="00:50:00">50 minutos</option>
+          <option value="00:55:00">55 minutos</option>
+          <option value="01:00:00">60 minutos</option>
+        </select>
+        <div style="margin-left: auto; display: flex; gap: 15px;">
+          <button id="btnAdicionarAgendamento" style="background-color: #007bff; color: white;">Adicionar Agendamento</button>
+        </div>
+      </div>
+      <div id="calendar"></div>
+    </section>
+  </main>
+
+  <!-- Modal para Adicionar/Editar Agendamento -->
+  <div id="modalAdicionar" class="modal">
+    <div class="modal-content">
+      <span class="close">&times;</span>
+      <h2 id="modalAdicionarTitle">Adicionar Agendamento</h2>
+      <form id="formAdicionar">
+        <input type="hidden" id="adicionarEditandoId" />
+        <div><label>Nome *</label><input type="text" id="adicionarNome" required /></div>
+        <div><label>Telefone *</label><input type="tel" id="adicionarTelefone" required /></div>
+        <div><label>Data da Avaliação *</label><input type="date" id="adicionarDataAvaliacao" required /></div>
+        <div><label>Hora *</label><input type="time" id="adicionarHoraAvaliacao" required /></div>
+        <div>
+          <label>Pago? *</label>
+          <select id="adicionarPago" required>
+            <option value="">Selecione</option>
+            <option value="Pago">Pago</option>
+            <option value="A pagar">A pagar</option>
+          </select>
+        </div>
+        <div><label>Data de Pagamento</label><input type="date" id="adicionarDataPagamento" disabled /></div>
+        <div>
+          <label>Serviço *</label>
+          <select id="adicionarServico" required></select>
+        </div>
+        <div><label>Valor</label><input type="number" step="0.01" id="adicionarValor" placeholder="Ex: 200" /></div>
+        <div><label>Valor (R$)</label><input type="text" id="adicionarValorFormatado" disabled /></div>
+        <div>
+          <label>Avaliador *</label>
+          <select id="adicionarAvaliador" required></select>
+        </div>
+        <div>
+          <label>Atendimento</label>
+          <select id="adicionarAtendimento">
+            <option value="Presença">Presença</option>
+            <option value="Falta sem justificativa">Falta sem justificativa</option>
+            <option value="Ausência do avaliador">Ausência do avaliador</option>
+            <option value="Desmarcado">Desmarcado</option>
+          </select>
+        </div>
+        <div><label>Recepção Responsável</label><input type="text" id="adicionarResponsavel" /></div>
+        <div><label>Observação</label><textarea id="adicionarObservacao" rows="3"></textarea></div>
+        <div class="actions">
+          <button type="reset" id="btnAdicionarLimpar">Limpar</button>
+          <button type="submit" class="primary">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal para Observação -->
+  <div id="modalObservacao" class="modal">
+    <div class="modal-content">
+      <span class="close">&times;</span>
+      <h2>Observação</h2>
+      <textarea id="observacaoText" rows="5"></textarea>
+      <button id="btnSalvarObservacao" class="primary">Salvar</button>
+    </div>
+  </div>
+
+  <!-- Modal para Login de Configurações -->
+  <div id="modalLogin" class="modal">
+    <div class="modal-content">
+      <span class="close">&times;</span>
+      <h2>Login para Configurações</h2>
+      <form id="formLogin">
+        <div><label>Login</label><input type="text" id="configLogin" required /></div>
+        <div><label>Senha</label><input type="password" id="configSenha" required /></div>
+        <button type="submit" class="primary">Entrar</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal para Configurações -->
+  <div id="modalConfig" class="modal">
+    <div class="modal-content">
+      <span class="close">&times;</span>
+      <h2>Configurações</h2>
+      <h3>Serviços</h3>
+      <ul id="servicosList"></ul>
+      <form id="addServicoForm">
+        <input type="text" id="newServico" placeholder="Novo Serviço" required />
+        <button type="submit">Adicionar</button>
+      </form>
+      <h3>Avaliadores</h3>
+      <ul id="avaliadoresList"></ul>
+      <form id="addAvaliadorForm">
+        <input type="text" id="newAvaliadorNome" placeholder="Nome do Avaliador" required />
+        <select id="newAvaliadorTipo" required>
+          <option value="">Tipo</option>
+          <option value="Nutricional">Nutricional</option>
+          <option value="Funcional">Funcional</option>
+          <option value="Fisioterapia">Fisioterapia</option>
+        </select>
+        <input type="color" id="newAvaliadorCor" required />
+        <button type="submit">Adicionar</button>
+      </form>
+      <h3>Bloqueios de Horários</h3>
+      <ul id="bloqueiosList"></ul>
+      <form id="addBloqueioForm">
+        <label>Tipo *</label>
+        <select id="newBloqueioTipo" required></select>
+        <label>Modo *</label>
+        <select id="newBloqueioMode">
+          <option value="recurring">Recorrente</option>
+          <option value="specific">Data Específica</option>
+        </select>
+        <label id="newBloqueioDaysLabel">Dias da Semana *</label>
+        <div id="newBloqueioDays"></div>
+        <div id="newBloqueioSpecific" style="display: none;">
+          <label id="newBloqueioDateLabel">Data *</label>
+          <input type="date" id="newBloqueioDate" />
+        </div>
+        <label>Hora Início *</label>
+        <input type="time" id="newBloqueioStart" required />
+        <label>Hora Fim *</label>
+        <input type="time" id="newBloqueioEnd" required />
+        <input type="hidden" id="editBloqueioIndex" />
+        <button type="submit">Adicionar</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal para Marcar Presença -->
+  <div id="modalPresenca" class="modal">
+    <div class="modal-content">
+      <span class="close">&times;</span>
+      <h2>Marcar Presença</h2>
+      <select id="presencaStatus">
+        <option value="Presença">Presença</option>
+        <option value="Falta sem justificativa">Falta sem justificativa</option>
+        <option value="Ausência do avaliador">Ausência do avaliador</option>
+        <option value="Desmarcado">Desmarcado</option>
+      </select>
+      <button id="btnSalvarPresenca" class="primary">Salvar</button>
+    </div>
+  </div>
+
+  <!-- Context Menu -->
+  <div id="contextMenu">
+    <button id="ctxEdit">Editar</button>
+    <button id="ctxDuplicate">Duplicar</button>
+    <button id="ctxDelete">Excluir</button>
+    <button id="ctxObservacao">Adicionar Observação</button>
+    <button id="ctxPresenca">Marcar Presença</button>
+  </div>
+
+  <script type="text/javascript">
+    var gk_isXlsx = false;
+    var gk_xlsxFileLookup = {};
+    var gk_fileData = {};
+    function filledCell(cell) {
+      return cell !== '' && cell != null;
+    }
+    function loadFileData(filename) {
+      if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+        try {
+          var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+          var firstSheetName = workbook.SheetNames[0];
+          var worksheet = workbook.Sheets[firstSheetName];
+          var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+          var filteredData = jsonData.filter(row => row.some(filledCell));
+          var headerRowIndex = filteredData.findIndex((row, index) =>
+            row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+          );
+          if (headerRowIndex === -1 || headerRowIndex > 25) {
+            headerRowIndex = 0;
+          }
+          var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex));
+          csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+          return csv;
+        } catch (e) {
+          console.error(e);
+          return "";
+        }
+      }
+      return gk_fileData[filename] || "";
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+      const form = document.getElementById('formAvaliacao');
+      const tabelaEventos = document.getElementById('tabelaEventos');
+      const editandoId = document.getElementById('editandoId');
+      const valorInput = document.getElementById('valor');
+      const valorFormatado = document.getElementById('valorFormatado');
+      const pagoSelect = document.getElementById('pago');
+      const dataPagamentoInput = document.getElementById('dataPagamento');
+      const STORAGE_KEY = 'biosAgendaAgendamentos';
+      const CONFIG_KEY = 'biosAgendaConfig';
+      
+      let agendamentos = [];
+      let restricoesSemana = {};
+      let filtroAtual = 'Todos';
+      let config = {
+        servicos: ["IAM", "Reavaliação", "Consulta"],
+        avaliadores: [
+          {nome: "Alessandro", tipo: "Funcional", cor: "#007bff"},
+          {nome: "Checkupfisio", tipo: "Fisioterapia", cor: "#8e44ad"},
+          {nome: "Lorena", tipo: "Nutricional", cor: "#28a745"},
+          {nome: "André", tipo: "Nutricional", cor: "#28a745"}
+        ],
+        blocks: []
+      };
+      
+      // --- HISTÓRICO (UNDO/REDO) ---
+      let history = [];
+      let redoStack = [];
+      const HISTORY_LIMIT = 50;
+
+      function updateHistoryButtons() {
+        document.getElementById('btnUndo').disabled = history.length === 0;
+        document.getElementById('btnRedo').disabled = redoStack.length === 0;
+      }
+
+      function pushState() {
+        redoStack = [];
+        history.push(JSON.stringify(agendamentos));
+        if (history.length > HISTORY_LIMIT) {
+          history.shift();
+        }
+        updateHistoryButtons();
+      }
+
+      function undo() {
+        if (history.length === 0) return;
+        redoStack.push(JSON.stringify(agendamentos));
+        agendamentos = JSON.parse(history.pop());
+        salvarAgendamentos(false);
+        atualizarTudo();
+        updateHistoryButtons();
+      }
+
+      function redo() {
+        if (redoStack.length === 0) return;
+        history.push(JSON.stringify(agendamentos));
+        agendamentos = JSON.parse(redoStack.pop());
+        salvarAgendamentos(false);
+        atualizarTudo();
+        updateHistoryButtons();
+      }
+      
+      document.getElementById('btnUndo').addEventListener('click', undo);
+      document.getElementById('btnRedo').addEventListener('click', redo);
+      document.addEventListener('keydown', (e) => {
+        if (e.ctrlKey && e.key.toLowerCase() === 'z') {
+          e.preventDefault();
+          undo();
+        }
+        if (e.ctrlKey && e.key.toLowerCase() === 'y') {
+          e.preventDefault();
+          redo();
+        }
+      });
+
+      // --- MAPEAMENTO DE SERVIÇOS, CORES E BLOQUEIOS PADRÃO ---
+      function getAvaliadorMap() {
+        const map = {};
+        config.avaliadores.forEach(av => {
+          map[av.nome] = av.tipo;
+        });
+        return map;
+      }
+
+      function getEventColor(avaliador) {
+        const av = config.avaliadores.find(a => a.nome === avaliador);
+        return av ? av.cor : '#6c757d';
+      }
+
+      function darkenColor(hex, percent = 20) {
+        let r = parseInt(hex.slice(1,3),16);
+        let g = parseInt(hex.slice(3,5),16);
+        let b = parseInt(hex.slice(5,7),16);
+        r = Math.floor(r * (1 - percent/100));
+        g = Math.floor(g * (1 - percent/100));
+        b = Math.floor(b * (1 - percent/100));
+        return `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`;
+      }
+
+      function hexToRgba(hex, alpha = 0.8) {
+        let r = parseInt(hex.slice(1,3),16);
+        let g = parseInt(hex.slice(3,5),16);
+        let b = parseInt(hex.slice(5,7),16);
+        return `rgba(${r},${g},${b},${alpha})`;
+      }
+
+      const defaultBlockedTimes = [
+        { daysOfWeek: [1, 2, 3, 4, 5], startTime: '00:00', endTime: '06:00'},
+        { daysOfWeek: [1, 2, 3, 4, 5], startTime: '12:00', endTime: '13:00'},
+        { daysOfWeek: [1, 2, 3, 4, 5], startTime: '20:00', endTime: '24:00'},
+        { daysOfWeek: [6], startTime: '00:00', endTime: '09:00'},
+        { daysOfWeek: [6], startTime: '13:00', endTime: '24:00'},
+        { daysOfWeek: [0], startTime: '00:00', endTime: '24:00'},
+      ].map(b => ({...b, display: 'background', color: '#f1f3f4', extendedProps: {isDefaultBlock: true}}));
+
+      function parseTime(timeStr) {
+        const [hours, minutes] = timeStr.split(':').map(Number);
+        return hours + minutes / 60;
+      }
+
+      // --- NAVEGAÇÃO ENTRE ABAS ---
+      document.getElementById('btnCadastro').onclick = () => {
+        document.getElementById('cadastro').style.display = 'block';
+        document.getElementById('agenda').style.display = 'none';
+        document.getElementById('btnCadastro').classList.add('active');
+        document.getElementById('btnAgenda').classList.remove('active');
+      }
+      document.getElementById('btnAgenda').onclick = () => {
+        document.getElementById('cadastro').style.display = 'none';
+        document.getElementById('agenda').style.display = 'block';
+        document.getElementById('btnAgenda').classList.add('active');
+        document.getElementById('btnCadastro').classList.remove('active');
+        calendar.render();
+      }
+
+      // --- FORMATAÇÃO DE VALOR ---
+      valorInput.addEventListener('input', () => {
+        const val = parseFloat(valorInput.value);
+        valorFormatado.value = isNaN(val) ? "" : val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+      });
+
+      // --- PAGO? LOGIC ---
+      pagoSelect.addEventListener('change', () => {
+        dataPagamentoInput.disabled = pagoSelect.value !== 'Pago';
+        if (pagoSelect.value !== 'Pago') {
+          dataPagamentoInput.value = '';
+        }
+      });
+
+      document.getElementById('btnLimpar').addEventListener('click', () => {
+        editandoId.value = '';
+        valorFormatado.value = '';
+        dataPagamentoInput.disabled = true;
+        form.reset();
+      });
+
+      // --- PERSISTÊNCIA DE DADOS ---
+      function salvarAgendamentos(doPushState = true) {
+        if(doPushState) pushState();
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(agendamentos));
+      }
+
+      function carregarAgendamentos() {
+        const dados = localStorage.getItem(STORAGE_KEY);
+        agendamentos = dados ? JSON.parse(dados) : [];
+      }
+
+      function salvarConfig() {
+        localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
+      }
+
+      function carregarConfig() {
+        const dados = localStorage.getItem(CONFIG_KEY);
+        if (dados) config = JSON.parse(dados);
+        if (!config.blocks) config.blocks = [];
+      }
+
+      // --- CONFIGURAÇÃO DO CALENDÁRIO ---
+      const calendarEl = document.getElementById('calendar');
+      let calendar = new FullCalendar.Calendar(calendarEl, {
+        initialView: 'timeGridWeek',
+        initialDate: new Date(),
+        slotMinTime: "06:00:00",
+        slotMaxTime: "21:00:00",
+        slotDuration: "00:30:00",
+        locale: 'pt-br',
+        headerToolbar: { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,timeGridDay' },
+        height: "auto",
+        editable: true,
+        selectable: true,
+        selectMirror: true,
+        durationEditable: false,
+        allDaySlot: false,
+        eventSources: [ defaultBlockedTimes ],
+        eventDrop: handleEventMove,
+        eventClick: handleEventClick,
+        select: handleSelect,
+        eventDidMount: function(info) {
+          if (!info.event.extendedProps.isDefaultBlock) {
+            info.el.addEventListener('contextmenu', function(e) {
+              e.preventDefault();
+              const menu = document.getElementById('contextMenu');
+              menu.style.left = e.pageX + 'px';
+              menu.style.top = e.pageY + 'px';
+              menu.style.display = 'block';
+              menu.dataset.eventId = info.event.id;
+            });
+          }
+        },
+        eventContent: function(arg) {
+          const tooltipContent = `
+            <div>Nome: ${arg.event.extendedProps.nome || ''}</div>
+            <div>Telefone: ${arg.event.extendedProps.telefone || ''}</div>
+            <div>Pago?: ${arg.event.extendedProps.pago || ''}</div>
+            <div>Data de Pagamento: ${arg.event.extendedProps.dataPagamento ? new Date(arg.event.extendedProps.dataPagamento).toLocaleDateString('pt-BR') : ''}</div>
+            <div>Serviço: ${arg.event.extendedProps.servico || ''}</div>
+            <div>Valor: ${arg.event.extendedProps.valor ? parseFloat(arg.event.extendedProps.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : ''}</div>
+            <div>Avaliador: ${arg.event.extendedProps.avaliador || ''}</div>
+            <div>Atendimento: ${arg.event.extendedProps.atendimento || ''}</div>
+            <div>Recepção Responsável: ${arg.event.extendedProps.responsavel || ''}</div>
+            <div>Observação: ${arg.event.extendedProps.observacao || ''}</div>
+          `;
+          const arrayContent = document.createElement('div');
+          arrayContent.classList.add('tooltip');
+          arrayContent.innerHTML = `
+            <span>${arg.event.title}</span>
+            <span class="tooltiptext">${tooltipContent}</span>
+          `;
+          return { domNodes: [arrayContent] };
+        },
+      });
+      
+      function handleEventMove(info) {
+        const event = info.event;
+        const newStart = event.start;
+        const newEnd = event.end || new Date(newStart.getTime() + 30 * 60000);
+        const tipoServico = getAvaliadorMap()[event.extendedProps.avaliador] || event.extendedProps.tipoServico;
+        if (!isTimeSlotAvailable(newStart, newEnd, tipoServico)) {
+          info.revert();
+          alert("Não é possível mover para um horário bloqueado.");
+          return;
+        }
+        const index = agendamentos.findIndex(ag => ag.id === event.id);
+        if (index !== -1) {
+          agendamentos[index].start = newStart.toISOString();
+          agendamentos[index].end = event.end ? event.end.toISOString() : null;
+          salvarAgendamentos();
+          atualizarTudo();
+        }
+      }
+
+      function handleEventClick(info) {
+        // Left-click does nothing or tooltip, right-click for menu
+      }
+
+      function handleSelect(info) {
+        // No override mode anymore
+      }
+
+      function renderizarCalendario() {
+        calendar.getEventSources().filter(es => es.internalEventSource.meta || es.internalEventSource.sourceId !== 'a').forEach(es => es.remove()); // remove previous custom and events
+        const eventosFiltrados = agendamentos.filter(ag => {
+          if (filtroAtual === 'Todos') return true;
+          const tipoServico = getAvaliadorMap()[ag.extendedProps.avaliador] || ag.extendedProps.tipoServico;
+          return tipoServico === filtroAtual;
+        });
+        calendar.addEventSource(eventosFiltrados);
+
+        const typeColorMap = {};
+        config.avaliadores.forEach(a => {
+          if (!typeColorMap[a.tipo]) typeColorMap[a.tipo] = a.cor;
+        });
+
+        const customBlocksFiltered = config.blocks.filter(b => filtroAtual === 'Todos' || b.type === filtroAtual);
+        const customBlockEvents = customBlocksFiltered.map(b => {
+          const blockColor = hexToRgba(darkenColor(typeColorMap[b.type] || '#6c757d'), 0.8);
+          if (b.specificDate) {
+            return {
+              start: `${b.specificDate}T${b.startTime}`,
+              end: `${b.specificDate}T${b.endTime}`,
+              display: 'background',
+              color: blockColor,
+              extendedProps: {isCustomBlock: true, type: b.type}
+            };
+          } else {
+            return {
+              daysOfWeek: b.daysOfWeek,
+              startTime: b.startTime,
+              endTime: b.endTime,
+              display: 'background',
+              color: blockColor,
+              extendedProps: {isCustomBlock: true, type: b.type}
+            };
+          }
+        });
+        calendar.addEventSource(customBlockEvents);
+      }
+
+      // --- LÓGICA DE ATUALIZAÇÃO E RENDERIZAÇÃO ---
+      function atualizarLista() {
+        tabelaEventos.innerHTML = "";
+        [...agendamentos]
+          .filter(ag => !ag.extendedProps.isDefaultBlock)
+          .sort((a, b) => new Date(a.start) - new Date(b.start))
+          .forEach(ev => {
+            const d = ev.extendedProps;
+            const start = new Date(ev.start);
+            let tr = document.createElement("tr");
+            let atendimentoClass = '';
+            switch (d.atendimento) {
+              case 'Presença': atendimentoClass = 'presenca'; break;
+              case 'Falta sem justificativa': atendimentoClass = 'falta-sem-justificativa'; break;
+              case 'Ausência do avaliador': atendimentoClass = 'ausencia-do-avaliador'; break;
+              case 'Desmarcado': atendimentoClass = 'desmarcado'; break;
+            }
+            tr.innerHTML = `
+              <td>${d.nome || ""}</td>
+              <td>${d.avaliador || ""}</td>
+              <td>${start.toLocaleDateString("pt-BR")}</td>
+              <td>${start.toLocaleTimeString("pt-BR", { hour: '2-digit', minute: '2-digit' })}</td>
+              <td class="${atendimentoClass}">${d.atendimento || ''}</td>
+              <td>
+                <button class="btnEditar" data-id="${ev.id}">Editar</button>
+                <button class="btnExcluir" data-id="${ev.id}">Excluir</button>
+              </td>`;
+            tabelaEventos.appendChild(tr);
+          });
+        adicionarListenersBotoesAcoes();
+      }
+
+      function adicionarListenersBotoesAcoes() {
+        document.querySelectorAll(".btnEditar").forEach(btn => {
+          btn.onclick = () => {
+            const evento = agendamentos.find(ag => ag.id === btn.dataset.id);
+            if (evento) {
+              const d = evento.extendedProps;
+              const start = new Date(evento.start);
+              editandoId.value = evento.id;
+              document.getElementById('nome').value = d.nome;
+              document.getElementById('telefone').value = d.telefone;
+              document.getElementById('dataAvaliacao').value = start.toISOString().split("T")[0];
+              document.getElementById('horaAvaliacao').value = start.toTimeString().substring(0, 5);
+              document.getElementById('pago').value = d.pago || '';
+              document.getElementById('dataPagamento').value = d.dataPagamento;
+              document.getElementById('dataPagamento').disabled = d.pago !== 'Pago';
+              document.getElementById('servico').value = d.servico;
+              document.getElementById('valor').value = d.valor;
+              document.getElementById('avaliador').value = d.avaliador;
+              document.getElementById('responsavel').value = d.responsavel;
+              document.getElementById('observacao').value = d.observacao || '';
+              valorInput.dispatchEvent(new Event('input'));
+              document.getElementById('btnCadastro').click();
+              window.scrollTo(0, 0);
+            }
+          }
+        });
+
+        document.querySelectorAll(".btnExcluir").forEach(btn => {
+          btn.onclick = () => {
+            if (confirm("Tem certeza que deseja excluir este agendamento?")) {
+              salvarAgendamentos();
+              agendamentos = agendamentos.filter(ag => ag.id !== btn.dataset.id);
+              atualizarTudo();
+            }
+          }
+        });
+      }
+
+      function atualizarTudo() {
+        salvarAgendamentos(false);
+        atualizarLista();
+        renderizarCalendario();
+        updateHistoryButtons();
+      }
+
+      // --- CHECAGEM DE DISPONIBILIDADE ---
+      function isTimeSlotAvailable(start, end, eventTipo = null) {
+        const startTime = start.getHours() + start.getMinutes() / 60;
+        const endTime = end.getHours() + end.getMinutes() / 60;
+        const day = start.getDay();
+        const dateStr = start.toISOString().split('T')[0];
+
+        const isDefaultBlocked = defaultBlockedTimes.some(b => 
+          b.daysOfWeek.includes(day) && 
+          (startTime < parseTime(b.endTime) && endTime > parseTime(b.startTime))
+        );
+        if (isDefaultBlocked) return false;
+
+        const isCustomBlocked = config.blocks.some(b => 
+          b.type === eventTipo && 
+          ((b.specificDate && b.specificDate === dateStr) || (!b.specificDate && b.daysOfWeek.includes(day))) && 
+          startTime < parseTime(b.endTime) && endTime > parseTime(b.startTime)
+        );
+        if (isCustomBlocked) return false;
+        
+        return true;
+      }
+
+      // --- LÓGICA DO FORMULÁRIO PRINCIPAL ---
+      form.onsubmit = e => {
+        e.preventDefault();
+        const data = document.getElementById('dataAvaliacao').value;
+        const hora = document.getElementById('horaAvaliacao').value;
+        if(!data || !hora) { alert("Data e Hora são obrigatórias."); return; }
+
+        const dataHoraInicio = new Date(`${data}T${hora}`);
+        const dataHoraFim = new Date(dataHoraInicio.getTime() + 30 * 60000);
+
+        const avaliador = document.getElementById('avaliador').value;
+        const eventTipo = getAvaliadorMap()[avaliador];
+
+        if (!isTimeSlotAvailable(dataHoraInicio, dataHoraFim, eventTipo)) {
+          alert(`O horário selecionado está bloqueado.`);
+          return;
+        }
+
+        const dadosEvento = {
+          title: `${document.getElementById('nome').value.trim()} - ${document.getElementById('avaliador').value}`,
+          start: dataHoraInicio.toISOString(),
+          color: getEventColor(document.getElementById('avaliador').value),
+          extendedProps: {
+            nome: document.getElementById('nome').value.trim(),
+            telefone: document.getElementById('telefone').value.trim(),
+            pago: document.getElementById('pago').value,
+            dataPagamento: document.getElementById('dataPagamento').value,
+            servico: document.getElementById('servico').value,
+            valor: document.getElementById('valor').value,
+            avaliador: document.getElementById('avaliador').value,
+            responsavel: document.getElementById('responsavel').value.trim(),
+            observacao: document.getElementById('observacao').value.trim()
+          }
+        };
+
+        salvarAgendamentos();
+        if (editandoId.value) {
+          const index = agendamentos.findIndex(ag => ag.id === editandoId.value);
+          if (index !== -1) agendamentos[index] = { ...agendamentos[index], ...dadosEvento };
+        } else {
+          dadosEvento.id = String(Date.now());
+          agendamentos.push(dadosEvento);
+        }
+
+        atualizarTudo();
+        form.reset();
+        valorFormatado.value = "";
+        dataPagamentoInput.disabled = true;
+        editandoId.value = "";
+        alert('Agendamento salvo com sucesso!');
+      };
+
+      // --- EXPORTAR ---
+      document.getElementById("btnExport").onclick = () => {
+        const ws_data = [["Nome", "Telefone", "Pago?", "Data Pagamento", "Data Avaliação", "Hora", "Serviço", "Valor", "Avaliador", "Atendimento", "Recepção Responsável", "Observação"]];
+        agendamentos.filter(ag => !ag.extendedProps.isDefaultBlock).forEach(ag => {
+          const start = new Date(ag.start);
+          const row = [
+            ag.extendedProps.nome,
+            ag.extendedProps.telefone,
+            ag.extendedProps.pago || '',
+            ag.extendedProps.dataPagamento ? new Date(ag.extendedProps.dataPagamento).toLocaleDateString("pt-BR") : '',
+            start.toLocaleDateString("pt-BR"),
+            start.toLocaleTimeString("pt-BR", { hour: '2-digit', minute: '2-digit' }),
+            ag.extendedProps.servico,
+            ag.extendedProps.valor,
+            ag.extendedProps.avaliador,
+            ag.extendedProps.atendimento,
+            ag.extendedProps.responsavel,
+            ag.extendedProps.observacao
+          ];
+          ws_data.push(row);
+        });
+        const ws = XLSX.utils.aoa_to_sheet(ws_data);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Agendamentos");
+        XLSX.writeFile(wb, "agendamentos.xlsx");
+      };
+      
+      // --- LÓGICA DE FILTROS E BLOQUEIOS/LIBERAÇÕES MANUAIS ---
+      document.querySelectorAll('.btnFiltro').forEach(button => button.addEventListener('click', (e) => {
+        document.querySelector('.btnFiltro.active').classList.remove('active');
+        e.target.classList.add('active');
+        filtroAtual = e.target.dataset.filter;
+        renderizarCalendario();
+      }));
+
+      // Modal para Adicionar/Editar Agendamento
+      const modalAdicionar = document.getElementById('modalAdicionar');
+      const spanAdicionar = modalAdicionar.querySelector(".close");
+      spanAdicionar.onclick = function() { modalAdicionar.style.display = "none"; }
+
+      const adicionarValorInput = document.getElementById('adicionarValor');
+      const adicionarValorFormatado = document.getElementById('adicionarValorFormatado');
+      const adicionarPagoSelect = document.getElementById('adicionarPago');
+      const adicionarDataPagamentoInput = document.getElementById('adicionarDataPagamento');
+
+      adicionarValorInput.addEventListener('input', () => {
+        const val = parseFloat(adicionarValorInput.value);
+        adicionarValorFormatado.value = isNaN(val) ? "" : val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+      });
+
+      adicionarPagoSelect.addEventListener('change', () => {
+        adicionarDataPagamentoInput.disabled = adicionarPagoSelect.value !== 'Pago';
+        if (adicionarPagoSelect.value !== 'Pago') {
+          adicionarDataPagamentoInput.value = '';
+        }
+      });
+
+      document.getElementById('btnAdicionarLimpar').addEventListener('click', () => {
+        document.getElementById('formAdicionar').reset();
+        adicionarValorFormatado.value = '';
+        adicionarDataPagamentoInput.disabled = true;
+      });
+
+      document.getElementById('btnAdicionarAgendamento').addEventListener('click', () => {
+        document.getElementById('modalAdicionarTitle').textContent = 'Adicionar Agendamento';
+        document.getElementById('adicionarEditandoId').value = '';
+        document.getElementById('formAdicionar').reset();
+        adicionarValorFormatado.value = '';
+        adicionarDataPagamentoInput.disabled = true;
+        modalAdicionar.style.display = 'flex';
+      });
+
+      document.getElementById('formAdicionar').onsubmit = e => {
+        e.preventDefault();
+        const data = document.getElementById('adicionarDataAvaliacao').value;
+        const hora = document.getElementById('adicionarHoraAvaliacao').value;
+        if(!data || !hora) { alert("Data e Hora são obrigatórias."); return; }
+
+        const dataHoraInicio = new Date(`${data}T${hora}`);
+        const dataHoraFim = new Date(dataHoraInicio.getTime() + 30 * 60000);
+
+        const avaliador = document.getElementById('adicionarAvaliador').value;
+        const eventTipo = getAvaliadorMap()[avaliador];
+
+        if (!isTimeSlotAvailable(dataHoraInicio, dataHoraFim, eventTipo)) {
+          alert(`O horário selecionado está bloqueado.`);
+          return;
+        }
+
+        const dadosEvento = {
+          title: `${document.getElementById('adicionarNome').value.trim()} - ${avaliador}`,
+          start: dataHoraInicio.toISOString(),
+          color: getEventColor(avaliador),
+          extendedProps: {
+            nome: document.getElementById('adicionarNome').value.trim(),
+            telefone: document.getElementById('adicionarTelefone').value.trim(),
+            pago: document.getElementById('adicionarPago').value,
+            dataPagamento: document.getElementById('adicionarDataPagamento').value,
+            servico: document.getElementById('adicionarServico').value,
+            valor: document.getElementById('adicionarValor').value,
+            avaliador: avaliador,
+            atendimento: document.getElementById('adicionarAtendimento').value,
+            responsavel: document.getElementById('adicionarResponsavel').value.trim(),
+            observacao: document.getElementById('adicionarObservacao').value.trim()
+          }
+        };
+
+        salvarAgendamentos();
+        if (document.getElementById('adicionarEditandoId').value) {
+          const index = agendamentos.findIndex(ag => ag.id === document.getElementById('adicionarEditandoId').value);
+          if (index !== -1) agendamentos[index] = { ...agendamentos[index], ...dadosEvento };
+        } else {
+          dadosEvento.id = String(Date.now());
+          agendamentos.push(dadosEvento);
+        }
+
+        atualizarTudo();
+        document.getElementById('formAdicionar').reset();
+        adicionarValorFormatado.value = "";
+        adicionarDataPagamentoInput.disabled = true;
+        modalAdicionar.style.display = 'none';
+        alert('Agendamento salvo com sucesso!');
+      };
+
+      // Modal para Observação
+      const modalObservacao = document.getElementById('modalObservacao');
+      const spanObservacao = modalObservacao.querySelector(".close");
+      spanObservacao.onclick = function() { modalObservacao.style.display = "none"; }
+
+      document.getElementById('btnSalvarObservacao').addEventListener('click', () => {
+        const id = document.getElementById('modalObservacao').dataset.eventId;
+        const index = agendamentos.findIndex(ag => ag.id === id);
+        if (index !== -1) {
+          agendamentos[index].extendedProps.observacao = document.getElementById('observacaoText').value.trim();
+          salvarAgendamentos();
+          atualizarTudo();
+          modalObservacao.style.display = 'none';
+          alert('Observação salva com sucesso!');
+        }
+      });
+
+      // Modal para Marcar Presença
+      const modalPresenca = document.getElementById('modalPresenca');
+      const spanPresenca = modalPresenca.querySelector(".close");
+      spanPresenca.onclick = function() { modalPresenca.style.display = "none"; }
+
+      document.getElementById('btnSalvarPresenca').addEventListener('click', () => {
+        const id = modalPresenca.dataset.eventId;
+        const index = agendamentos.findIndex(ag => ag.id === id);
+        if (index !== -1) {
+          agendamentos[index].extendedProps.atendimento = document.getElementById('presencaStatus').value;
+          salvarAgendamentos();
+          atualizarTudo();
+          modalPresenca.style.display = 'none';
+          alert('Presença marcada com sucesso!');
+        }
+      });
+
+      // Modal para Login e Configurações
+      const modalLogin = document.getElementById('modalLogin');
+      const modalConfig = document.getElementById('modalConfig');
+      const spanLogin = modalLogin.querySelector(".close");
+      const spanConfig = modalConfig.querySelector(".close");
+      spanLogin.onclick = function() { modalLogin.style.display = "none"; }
+      spanConfig.onclick = function() { modalConfig.style.display = "none"; }
+
+      // Context Menu
+      const contextMenu = document.getElementById('contextMenu');
+      document.addEventListener('click', (e) => {
+        if (!contextMenu.contains(e.target)) {
+          contextMenu.style.display = 'none';
+        }
+      });
+
+      document.getElementById('ctxEdit').addEventListener('click', () => {
+        const id = contextMenu.dataset.eventId;
+        const evento = agendamentos.find(ag => ag.id === id);
+        if (evento) {
+          const d = evento.extendedProps;
+          const start = new Date(evento.start);
+          document.getElementById('modalAdicionarTitle').textContent = 'Editar Agendamento';
+          document.getElementById('adicionarEditandoId').value = id;
+          document.getElementById('adicionarNome').value = d.nome;
+          document.getElementById('adicionarTelefone').value = d.telefone;
+          document.getElementById('adicionarDataAvaliacao').value = start.toISOString().split("T")[0];
+          document.getElementById('adicionarHoraAvaliacao').value = start.toTimeString().substring(0, 5);
+          document.getElementById('adicionarPago').value = d.pago || '';
+          document.getElementById('adicionarDataPagamento').value = d.dataPagamento;
+          document.getElementById('adicionarDataPagamento').disabled = d.pago !== 'Pago';
+          document.getElementById('adicionarServico').value = d.servico;
+          document.getElementById('adicionarValor').value = d.valor;
+          document.getElementById('adicionarAvaliador').value = d.avaliador;
+          document.getElementById('adicionarAtendimento').value = d.atendimento;
+          document.getElementById('adicionarResponsavel').value = d.responsavel;
+          document.getElementById('adicionarObservacao').value = d.observacao || '';
+          adicionarValorInput.dispatchEvent(new Event('input'));
+          modalAdicionar.style.display = 'flex';
+        }
+        contextMenu.style.display = 'none';
+      });
+
+      document.getElementById('ctxDuplicate').addEventListener('click', () => {
+        const id = contextMenu.dataset.eventId;
+        const evento = agendamentos.find(ag => ag.id === id);
+        if (evento) {
+          const newEvento = { ...evento, id: String(Date.now()) };
+          agendamentos.push(newEvento);
+          salvarAgendamentos();
+          atualizarTudo();
+          const d = newEvento.extendedProps;
+          const start = new Date(newEvento.start);
+          document.getElementById('modalAdicionarTitle').textContent = 'Editar Duplicata';
+          document.getElementById('adicionarEditandoId').value = newEvento.id;
+          document.getElementById('adicionarNome').value = d.nome;
+          document.getElementById('adicionarTelefone').value = d.telefone;
+          document.getElementById('adicionarDataAvaliacao').value = start.toISOString().split("T")[0];
+          document.getElementById('adicionarHoraAvaliacao').value = start.toTimeString().substring(0, 5);
+          document.getElementById('adicionarPago').value = d.pago || '';
+          document.getElementById('adicionarDataPagamento').value = d.dataPagamento;
+          document.getElementById('adicionarDataPagamento').disabled = d.pago !== 'Pago';
+          document.getElementById('adicionarServico').value = d.servico;
+          document.getElementById('adicionarValor').value = d.valor;
+          document.getElementById('adicionarAvaliador').value = d.avaliador;
+          document.getElementById('adicionarAtendimento').value = d.atendimento;
+          document.getElementById('adicionarResponsavel').value = d.responsavel;
+          document.getElementById('adicionarObservacao').value = d.observacao || '';
+          adicionarValorInput.dispatchEvent(new Event('input'));
+          modalAdicionar.style.display = 'flex';
+        }
+        contextMenu.style.display = 'none';
+      });
+
+      document.getElementById('ctxDelete').addEventListener('click', () => {
+        const id = contextMenu.dataset.eventId;
+        if (confirm("Tem certeza que deseja excluir este agendamento?")) {
+          salvarAgendamentos();
+          agendamentos = agendamentos.filter(ag => ag.id !== id);
+          atualizarTudo();
+        }
+        contextMenu.style.display = 'none';
+      });
+
+      document.getElementById('ctxObservacao').addEventListener('click', () => {
+        const id = contextMenu.dataset.eventId;
+        const evento = agendamentos.find(ag => ag.id === id);
+        if (evento) {
+          document.getElementById('observacaoText').value = evento.extendedProps.observacao || '';
+          modalObservacao.dataset.eventId = id;
+          modalObservacao.style.display = 'flex';
+        }
+        contextMenu.style.display = 'none';
+      });
+
+      document.getElementById('ctxPresenca').addEventListener('click', () => {
+        const id = contextMenu.dataset.eventId;
+        const evento = agendamentos.find(ag => ag.id === id);
+        if (evento) {
+          document.getElementById('presencaStatus').value = evento.extendedProps.atendimento || 'Presença';
+          modalPresenca.dataset.eventId = id;
+          modalPresenca.style.display = 'flex';
+        }
+        contextMenu.style.display = 'none';
+      });
+
+      // Window onclick for modals
+      window.onclick = function(event) {
+        if (event.target == modalAdicionar) { modalAdicionar.style.display = "none"; }
+        if (event.target == modalObservacao) { modalObservacao.style.display = "none"; }
+        if (event.target == modalPresenca) { modalPresenca.style.display = "none"; }
+        if (event.target == modalLogin) { modalLogin.style.display = "none"; }
+        if (event.target == modalConfig) { modalConfig.style.display = "none"; }
+      }
+
+      // --- INTERVALO DE VISUALIZAÇÃO ---
+      document.getElementById('slotDurationSelect').addEventListener('change', (e) => {
+        calendar.setOption('slotDuration', e.target.value);
+      });
+
+      // --- FILTRO DE BUSCA NA LISTA ---
+      document.getElementById('searchInput').addEventListener('input', (e) => {
+        const filter = e.target.value.toLowerCase();
+        const rows = tabelaEventos.querySelectorAll('tr');
+        rows.forEach(row => {
+          const text = row.textContent.toLowerCase();
+          row.style.display = text.includes(filter) ? '' : 'none';
+        });
+      });
+
+      // --- CONFIGURAÇÕES ---
+      document.getElementById('btnConfig').addEventListener('click', () => {
+        document.getElementById('modalLogin').style.display = 'flex';
+      });
+
+      document.getElementById('formLogin').onsubmit = (e) => {
+        e.preventDefault();
+        const login = document.getElementById('configLogin').value;
+        const senha = document.getElementById('configSenha').value;
+        if (login === 'admin' && senha === 'password') {
+          document.getElementById('modalLogin').style.display = 'none';
+          document.getElementById('modalConfig').style.display = 'flex';
+          carregarConfigUI();
+        } else {
+          alert('Login ou senha incorretos.');
+        }
+      };
+
+      function carregarConfigUI() {
+        const servicosList = document.getElementById('servicosList');
+        servicosList.innerHTML = '';
+        config.servicos.forEach(s => {
+          const li = document.createElement('li');
+          li.innerHTML = `${s} <button onclick="removerServico('${s}')">Excluir</button>`;
+          servicosList.appendChild(li);
+        });
+
+        const avaliadoresList = document.getElementById('avaliadoresList');
+        avaliadoresList.innerHTML = '';
+        config.avaliadores.forEach(a => {
+          const li = document.createElement('li');
+          li.innerHTML = `${a.nome} (${a.tipo}) <input type="color" value="${a.cor}" onchange="editarAvaliadorCor('${a.nome}', this.value)"> <button onclick="removerAvaliador('${a.nome}')">Excluir</button>`;
+          avaliadoresList.appendChild(li);
+        });
+
+        // Bloqueios
+        const tipos = [...new Set(config.avaliadores.map(a => a.tipo))];
+        const bloqueioTipoSelect = document.getElementById('newBloqueioTipo');
+        bloqueioTipoSelect.innerHTML = '<option value="">Selecione</option>';
+        tipos.forEach(t => {
+          const option = document.createElement('option');
+          option.value = t;
+          option.text = t;
+          bloqueioTipoSelect.appendChild(option);
+        });
+
+        const dayNames = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+        const daysDiv = document.getElementById('newBloqueioDays');
+        daysDiv.innerHTML = '';
+        for (let d = 0; d < 7; d++) {
+          const label = document.createElement('label');
+          label.innerHTML = `<input type="checkbox" value="${d}"> ${dayNames[d]}`;
+          daysDiv.appendChild(label);
+        }
+
+        const bloqueiosList = document.getElementById('bloqueiosList');
+        bloqueiosList.innerHTML = '';
+        config.blocks.forEach((b, i) => {
+          const li = document.createElement('li');
+          let dateStr;
+          if (b.specificDate) {
+            dateStr = `Data: ${b.specificDate}`;
+          } else {
+            dateStr = `Dias: ${b.daysOfWeek.map(d => dayNames[d]).join(', ')}`;
+          }
+          li.innerHTML = `${b.type} - ${dateStr} - ${b.startTime} a ${b.endTime} <button onclick="editarBloqueio(${i})">Editar</button> <button onclick="removerBloqueio(${i})">Excluir</button>`;
+          bloqueiosList.appendChild(li);
+        });
+      }
+
+      document.getElementById('newBloqueioMode').addEventListener('change', (e) => {
+        const mode = e.target.value;
+        document.getElementById('newBloqueioDaysLabel').style.display = mode === 'recurring' ? 'block' : 'none';
+        document.getElementById('newBloqueioDays').style.display = mode === 'recurring' ? 'grid' : 'none';
+        document.getElementById('newBloqueioSpecific').style.display = mode === 'specific' ? 'block' : 'none';
+      });
+
+      window.removerServico = function(servico) {
+        config.servicos = config.servicos.filter(s => s !== servico);
+        salvarConfig();
+        carregarConfigUI();
+        loadSelectOptions();
+      }
+
+      window.removerAvaliador = function(nome) {
+        config.avaliadores = config.avaliadores.filter(a => a.nome !== nome);
+        salvarConfig();
+        carregarConfigUI();
+        loadSelectOptions();
+      }
+
+      window.editarAvaliadorCor = function(nome, cor) {
+        const av = config.avaliadores.find(a => a.nome === nome);
+        if (av) av.cor = cor;
+        salvarConfig();
+      }
+
+      window.removerBloqueio = function(i) {
+        config.blocks.splice(i, 1);
+        salvarConfig();
+        carregarConfigUI();
+        atualizarTudo();
+      }
+
+      window.editarBloqueio = function(i) {
+        const b = config.blocks[i];
+        document.getElementById('newBloqueioTipo').value = b.type;
+        document.getElementById('newBloqueioMode').value = b.specificDate ? 'specific' : 'recurring';
+        document.getElementById('newBloqueioMode').dispatchEvent(new Event('change'));
+        if (b.specificDate) {
+          document.getElementById('newBloqueioDate').value = b.specificDate;
+        } else {
+          document.querySelectorAll('#newBloqueioDays input').forEach(inp => {
+            inp.checked = b.daysOfWeek.includes(parseInt(inp.value));
+          });
+        }
+        document.getElementById('newBloqueioStart').value = b.startTime;
+        document.getElementById('newBloqueioEnd').value = b.endTime;
+        document.getElementById('editBloqueioIndex').value = i;
+        document.getElementById('addBloqueioForm').querySelector('button').textContent = 'Salvar Alterações';
+      }
+
+      document.getElementById('addServicoForm').onsubmit = (e) => {
+        e.preventDefault();
+        const newServico = document.getElementById('newServico').value.trim();
+        if (newServico && !config.servicos.includes(newServico)) {
+          config.servicos.push(newServico);
+          salvarConfig();
+          carregarConfigUI();
+          loadSelectOptions();
+          document.getElementById('newServico').value = '';
+        }
+      };
+
+      document.getElementById('addAvaliadorForm').onsubmit = (e) => {
+        e.preventDefault();
+        const newNome = document.getElementById('newAvaliadorNome').value.trim();
+        const newTipo = document.getElementById('newAvaliadorTipo').value;
+        const newCor = document.getElementById('newAvaliadorCor').value;
+        if (newNome && newTipo && newCor && !config.avaliadores.some(a => a.nome === newNome)) {
+          config.avaliadores.push({nome: newNome, tipo: newTipo, cor: newCor});
+          salvarConfig();
+          carregarConfigUI();
+          loadSelectOptions();
+          document.getElementById('addAvaliadorForm').reset();
+        }
+      };
+
+      document.getElementById('addBloqueioForm').onsubmit = (e) => {
+        e.preventDefault();
+        const type = document.getElementById('newBloqueioTipo').value;
+        const mode = document.getElementById('newBloqueioMode').value;
+        let daysOfWeek = [];
+        let specificDate = null;
+        if (mode === 'recurring') {
+          daysOfWeek = Array.from(document.querySelectorAll('#newBloqueioDays input:checked')).map(inp => parseInt(inp.value));
+          if (daysOfWeek.length === 0) {
+            alert('Selecione pelo menos um dia da semana.');
+            return;
+          }
+        } else {
+          specificDate = document.getElementById('newBloqueioDate').value;
+          if (!specificDate) {
+            alert('Selecione uma data.');
+            return;
+          }
+        }
+        const start = document.getElementById('newBloqueioStart').value;
+        const end = document.getElementById('newBloqueioEnd').value;
+        if (!type || !start || !end) {
+          alert('Preencha todos os campos obrigatórios.');
+          return;
+        }
+        const editIndex = document.getElementById('editBloqueioIndex').value;
+        const block = {type, daysOfWeek, specificDate, startTime: start, endTime: end};
+        if (editIndex !== '') {
+          config.blocks[editIndex] = block;
+          document.getElementById('editBloqueioIndex').value = '';
+          document.getElementById('addBloqueioForm').querySelector('button').textContent = 'Adicionar';
+        } else {
+          config.blocks.push(block);
+        }
+        document.getElementById('addBloqueioForm').reset();
+        document.querySelectorAll('#newBloqueioDays input').forEach(inp => inp.checked = false);
+        document.getElementById('newBloqueioMode').dispatchEvent(new Event('change'));
+        salvarConfig();
+        carregarConfigUI();
+        atualizarTudo();
+      };
+
+      // --- CARREGAR OPTIONS DOS SELECTS ---
+      function loadSelectOptions() {
+        const servicoSelects = [document.getElementById('servico'), document.getElementById('adicionarServico')];
+        servicoSelects.forEach(select => {
+          select.innerHTML = '<option value="">Selecione</option>';
+          config.servicos.forEach(s => {
+            const option = document.createElement('option');
+            option.value = s;
+            option.text = s;
+            select.appendChild(option);
+          });
+        });
+
+        const avaliadorSelects = [document.getElementById('avaliador'), document.getElementById('adicionarAvaliador')];
+        avaliadorSelects.forEach(select => {
+          select.innerHTML = '<option value="">Selecione</option>';
+          config.avaliadores.forEach(a => {
+            const option = document.createElement('option');
+            option.value = a.nome;
+            option.text = `${a.tipo} - ${a.nome}`;
+            select.appendChild(option);
+          });
+        });
+      }
+
+      // --- CARGA INICIAL ---
+      carregarConfig();
+      loadSelectOptions();
+      carregarAgendamentos();
+      atualizarTudo();
+      calendar.render();
+      document.getElementById('newBloqueioMode').dispatchEvent(new Event('change'));
+    });
+  </script>
+</body>
+</html>
